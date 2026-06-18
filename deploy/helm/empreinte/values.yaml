@@ -1,0 +1,61 @@
+# Valeurs par defaut du chart Empreinte.
+
+image:
+  repository: ghcr.io/seydinabane/empreinte
+  tag: ""  # defaut: .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# Migrations Alembic jouees en hook pre-install/pre-upgrade.
+migrations:
+  enabled: true
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: true
+  className: nginx
+  host: empreinte.example.internal
+  tls:
+    enabled: true
+    secretName: empreinte-tls
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+# Variables non sensibles (ConfigMap).
+config:
+  EMPREINTE_ENV: production
+  EMPREINTE_LOG_LEVEL: INFO
+  EMPREINTE_SOVEREIGN_MODE: "true"
+  EMPREINTE_LLM_API_BASE: http://vllm.empreinte.svc.cluster.local:8000/v1
+  EMPREINTE_LLM_MODEL_PRIMARY: Qwen/Qwen2.5-VL-7B-Instruct
+  EMPREINTE_QDRANT_URL: http://qdrant.empreinte.svc.cluster.local:6333
+  EMPREINTE_OBJECT_STORE_ENDPOINT: http://minio.empreinte.svc.cluster.local:9000
+  EMPREINTE_OBJECT_STORE_BUCKET: empreinte
+
+# Secrets : references a un secret externe (external-secrets / sealed-secrets).
+# Ne JAMAIS mettre de valeur en clair ici.
+existingSecret: empreinte-secrets
+
+probes:
+  liveness: /health
+  readiness: /ready

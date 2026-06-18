@@ -1,0 +1,39 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Cible de deploiement
+        type: choice
+        options: [staging, prod]
+        default: staging
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    permissions:
+      contents: read
+      id-token: write  # OIDC vers le cluster VPC
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to cluster (OIDC)
+        run: echo "Configurer ici l'auth OIDC vers le cluster K8s du VPC (kubeconfig)."
+
+      - name: Helm upgrade
+        run: |
+          ENV="${{ github.event.inputs.environment || 'staging' }}"
+          helm upgrade --install empreinte deploy/helm/empreinte \
+            --namespace empreinte --create-namespace \
+            --values deploy/helm/empreinte/values.yaml \
+            --values deploy/helm/empreinte/values-$ENV.yaml \
+            --set image.tag=${{ github.sha }} \
+            --wait --timeout 10m

@@ -1,0 +1,11 @@
+replicaCount: 1
+
+ingress:
+  host: empreinte.staging.example.internal
+
+autoscaling:
+  enabled: false
+
+config:
+  EMPREINTE_ENV: staging
+  EMPREINTE_LOG_LEVEL: DEBUG

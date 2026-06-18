@@ -1,0 +1,9 @@
+{
+  "doc_id": "demo-facture-energie",
+  "indicators": [
+    {"category": "electricity", "value": 12000, "unit": "kWh", "source_page": 1},
+    {"category": "natural_gas", "value": 4500, "unit": "kWh", "source_page": 1},
+    {"category": "business_travel_car", "value": 8200, "unit": "km", "source_page": 2},
+    {"category": "waste", "value": 1500, "unit": "kg", "source_page": 2}
+  ]
+}

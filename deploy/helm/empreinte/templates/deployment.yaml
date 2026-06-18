@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "empreinte.fullname" . }}
+  labels:
+    {{- include "empreinte.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "empreinte.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "empreinte.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "{{ .Values.service.port }}"
+    spec:
+      containers:
+        - name: app
+          image: {{ include "empreinte.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "empreinte.fullname" . }}-config
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness }}
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
