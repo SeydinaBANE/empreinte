@@ -3,7 +3,18 @@
 Format base sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 versionnage [SemVer](https://semver.org/lang/fr/).
 
-## [Unreleased] — Mise en production M1
+## [Unreleased] — Mise en production M1–M2
+
+### Added (M2 — qualité & résilience)
+
+- **Guided decoding** : `LLMRequest.response_schema` → `guided_json` vLLM ; schéma dérivé de
+  Pydantic (`ExtractedIndicatorDraft`).
+- **Seuil de confiance** : indicateurs `needs_review` sous `EMPREINTE_EXTRACTION_MIN_CONFIDENCE`.
+- **Circuit breaker** dans `LLMGateway` (seuil d'échecs + cooldown, court-circuit vers fallback).
+- **Harnais d'éval** : `evaluation.py` (P/R/F1 + exactitude numérique), `eval/` (dataset +
+  `run_eval.py`), job CI `eval` non bloquant.
+
+
 
 ### Added
 

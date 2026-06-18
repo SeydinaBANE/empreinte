@@ -9,7 +9,8 @@ permet de tourner hors-ligne et en tests sans aucun appel reseau.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Callable
 from typing import Protocol
 
 import httpx
@@ -26,6 +27,42 @@ _ContentPart = dict[str, object]
 
 class LLMProviderError(RuntimeError):
     """Echec d'appel d'un fournisseur LLM."""
+
+
+class CircuitBreaker:
+    """Disjoncteur : ouvre apres N echecs, court-circuite pendant un cooldown."""
+
+    def __init__(
+        self, threshold: int, reset_sec: float, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._threshold = threshold
+        self._reset_sec = reset_sec
+        self._clock = clock
+        self._failures = 0
+        self._opened_at: float | None = None
+
+    def allow(self) -> bool:
+        """Indique si un appel est permis (ferme, ou demi-ouvert apres cooldown)."""
+        if self._opened_at is None:
+            return True
+        if self._clock() - self._opened_at >= self._reset_sec:
+            self._opened_at = None
+            self._failures = 0
+            return True
+        return False
+
+    def record_success(self) -> None:
+        self._failures = 0
+        self._opened_at = None
+
+    def record_failure(self) -> None:
+        self._failures += 1
+        if self._failures >= self._threshold:
+            self._opened_at = self._clock()
+
+    @property
+    def is_open(self) -> bool:
+        return self._opened_at is not None
 
 
 class VisionLLMProvider(Protocol):
@@ -107,7 +144,7 @@ class OpenAICompatVisionProvider:
         return parts
 
     def _build_payload(self, request: LLMRequest) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "model": self.model,
             "messages": [
                 {"role": m.role.value, "content": self._content(m)} for m in request.messages
@@ -115,6 +152,9 @@ class OpenAICompatVisionProvider:
             "max_tokens": request.max_tokens,
             "temperature": request.temperature,
         }
+        if request.response_schema is not None:
+            payload["guided_json"] = request.response_schema
+        return payload
 
     async def complete(self, request: LLMRequest) -> str:
         payload = self._build_payload(request)
@@ -153,22 +193,40 @@ class OpenAICompatVisionProvider:
 
 
 class LLMGateway:
-    """Route vers le provider primaire, bascule sur le secondaire en cas d'echec."""
+    """Route vers le provider primaire, bascule sur le secondaire en cas d'echec.
 
-    def __init__(self, primary: VisionLLMProvider, fallback: VisionLLMProvider) -> None:
+    Un ``CircuitBreaker`` court-circuite le primaire apres plusieurs echecs consecutifs,
+    evitant de marteler un backend defaillant (vLLM indisponible) avant son cooldown.
+    """
+
+    def __init__(
+        self,
+        primary: VisionLLMProvider,
+        fallback: VisionLLMProvider,
+        breaker: CircuitBreaker | None = None,
+    ) -> None:
         self._primary = primary
         self._fallback = fallback
+        cfg = get_settings()
+        self._breaker = breaker or CircuitBreaker(
+            cfg.circuit_breaker_threshold, cfg.circuit_breaker_reset_sec
+        )
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        """Appelle le primaire puis le fallback ; leve ``LLMProviderError`` si les deux echouent."""
-        with record_span("llm.primary", model=self._primary.model):
-            try:
-                content = await self._primary.complete(request)
-                METRICS.incr("llm.primary.success")
-                return LLMResponse(content=content, model=self._primary.model)
-            except LLMProviderError as exc:
-                METRICS.incr("llm.primary.failure")
-                logger.warning("primary_failed", model=self._primary.model, error=str(exc))
+        """Appelle le primaire (si le disjoncteur est ferme) puis le fallback en secours."""
+        if self._breaker.allow():
+            with record_span("llm.primary", model=self._primary.model):
+                try:
+                    content = await self._primary.complete(request)
+                    self._breaker.record_success()
+                    METRICS.incr("llm.primary.success")
+                    return LLMResponse(content=content, model=self._primary.model)
+                except LLMProviderError as exc:
+                    self._breaker.record_failure()
+                    METRICS.incr("llm.primary.failure")
+                    logger.warning("primary_failed", model=self._primary.model, error=str(exc))
+        else:
+            METRICS.incr("llm.circuit_open")
 
         with record_span("llm.fallback", model=self._fallback.model):
             content = await self._fallback.complete(request)

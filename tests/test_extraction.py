@@ -49,3 +49,25 @@ async def test_extract_raises_without_array(demo_document: SourceDocument) -> No
     extractor = Extractor(make_gateway("aucun tableau ici"))
     with pytest.raises(ExtractionError):
         await extractor.extract(demo_document)
+
+
+async def test_low_confidence_is_flagged_for_review(demo_document: SourceDocument) -> None:
+    payload = '[{"category": "electricity", "value": 1, "unit": "kWh", "source_page": 1, "confidence": 0.2}]'
+    extractor = Extractor(make_gateway(payload), min_confidence=0.5)
+    result = await extractor.extract(demo_document)
+    assert result.indicators[0].needs_review is True
+
+
+async def test_high_confidence_not_flagged(demo_document: SourceDocument) -> None:
+    payload = '[{"category": "electricity", "value": 1, "unit": "kWh", "source_page": 1, "confidence": 0.9}]'
+    extractor = Extractor(make_gateway(payload), min_confidence=0.5)
+    result = await extractor.extract(demo_document)
+    assert result.indicators[0].needs_review is False
+
+
+def test_extraction_schema_is_array() -> None:
+    from empreinte.extraction import extraction_schema
+
+    schema = extraction_schema()
+    assert schema["type"] == "array"
+    assert "items" in schema

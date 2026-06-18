@@ -37,6 +37,7 @@ class LLMRequest(BaseModel):
     messages: list[Message]
     max_tokens: int = Field(default=1536, ge=1, le=8192)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    response_schema: dict[str, object] | None = None
 
 
 class LLMResponse(BaseModel):
@@ -108,8 +109,19 @@ class ActivityCategory(StrEnum):
     WASTE = "waste"
 
 
+class ExtractedIndicatorDraft(BaseModel):
+    """Donnee d'activite telle que renvoyee par le VLM (schema de guided decoding)."""
+
+    category: ActivityCategory
+    value: float = Field(ge=0.0)
+    unit: ActivityUnit
+    source_page: int = Field(ge=1)
+    raw_excerpt: str = ""
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
 class ExtractedIndicator(BaseModel):
-    """Donnee d'activite extraite d'une page, avant calcul carbone."""
+    """Donnee d'activite extraite d'une page, rattachee a l'ESRS, avant calcul carbone."""
 
     category: ActivityCategory
     value: float = Field(ge=0.0)
@@ -118,6 +130,7 @@ class ExtractedIndicator(BaseModel):
     raw_excerpt: str = ""
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     datapoint: EsrsDatapoint = EsrsDatapoint.UNMAPPED
+    needs_review: bool = False
 
 
 class ExtractionResult(BaseModel):

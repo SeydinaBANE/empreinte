@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     llm_api_base: str = ""
     llm_api_key: str = ""
     llm_timeout_sec: float = 60.0
+    llm_guided_decoding: bool = True
+
+    circuit_breaker_threshold: int = 3
+    circuit_breaker_reset_sec: float = 30.0
+
+    extraction_min_confidence: float = 0.5
 
     sovereign_mode: bool = True
 

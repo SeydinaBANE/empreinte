@@ -3,17 +3,39 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 
 import httpx
 import pytest
 
 from empreinte.gateway import (
+    CircuitBreaker,
     FailingProvider,
     LLMGateway,
+    LLMProviderError,
     LocalVisionProvider,
     OpenAICompatVisionProvider,
 )
 from empreinte.schemas import ImageContent, LLMRequest, Message, Role
+
+
+class _CountingFailingProvider:
+    """Primaire qui echoue toujours et compte ses appels (test du disjoncteur)."""
+
+    def __init__(self, model: str = "primary") -> None:
+        self.model = model
+        self.calls = 0
+
+    async def complete(self, request: LLMRequest) -> str:
+        del request
+        self.calls += 1
+        raise LLMProviderError("indisponible")
+
+    async def stream(self, request: LLMRequest) -> AsyncIterator[str]:
+        del request
+        raise LLMProviderError("indisponible")
+        yield  # pragma: no cover
+
 
 _PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
@@ -75,6 +97,24 @@ async def test_openai_compat_sends_multimodal_content() -> None:
     await client.aclose()
 
 
+async def test_openai_compat_sends_guided_json_schema() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "[]"}}]})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://local")
+    provider = OpenAICompatVisionProvider(model="vlm", client=client)
+    request = LLMRequest(
+        messages=[Message(role=Role.USER, content="q")],
+        response_schema={"type": "array"},
+    )
+    await provider.complete(request)
+    assert captured["body"]["guided_json"] == {"type": "array"}  # type: ignore[index]
+    await client.aclose()
+
+
 async def test_openai_compat_raises_on_http_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500)
@@ -86,6 +126,49 @@ async def test_openai_compat_raises_on_http_error() -> None:
     with pytest.raises(LLMProviderError):
         await provider.complete(_text_request("q"))
     await client.aclose()
+
+
+def test_circuit_breaker_opens_after_threshold() -> None:
+    clock = {"t": 0.0}
+    breaker = CircuitBreaker(threshold=2, reset_sec=10.0, clock=lambda: clock["t"])
+    assert breaker.allow() is True
+    breaker.record_failure()
+    breaker.record_failure()
+    assert breaker.is_open is True
+    assert breaker.allow() is False
+
+
+def test_circuit_breaker_half_opens_after_reset() -> None:
+    clock = {"t": 0.0}
+    breaker = CircuitBreaker(threshold=1, reset_sec=10.0, clock=lambda: clock["t"])
+    breaker.record_failure()
+    assert breaker.allow() is False
+    clock["t"] = 11.0
+    assert breaker.allow() is True
+
+
+def test_circuit_breaker_success_resets() -> None:
+    breaker = CircuitBreaker(threshold=2, reset_sec=10.0)
+    breaker.record_failure()
+    breaker.record_success()
+    breaker.record_failure()
+    assert breaker.is_open is False
+
+
+async def test_gateway_short_circuits_primary_when_open() -> None:
+    primary = _CountingFailingProvider()
+    breaker = CircuitBreaker(threshold=1, reset_sec=100.0)
+    gateway = LLMGateway(
+        primary=primary,
+        fallback=LocalVisionProvider(model="fb", text_reply="secours"),
+        breaker=breaker,
+    )
+    first = await gateway.complete(_text_request("q"))
+    assert first.used_fallback is True
+    assert primary.calls == 1
+    second = await gateway.complete(_text_request("q"))
+    assert second.used_fallback is True
+    assert primary.calls == 1  # disjoncteur ouvert : primaire non rappele
 
 
 async def test_openai_compat_stream_yields_tokens() -> None:

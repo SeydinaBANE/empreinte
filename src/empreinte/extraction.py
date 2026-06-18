@@ -11,11 +11,13 @@ import json
 
 from pydantic import ValidationError
 
+from empreinte.config import get_settings
 from empreinte.gateway import LLMGateway
 from empreinte.logging import get_logger
 from empreinte.observability import METRICS, record_span
 from empreinte.schemas import (
     ExtractedIndicator,
+    ExtractedIndicatorDraft,
     ExtractionResult,
     ImageContent,
     LLMRequest,
@@ -26,6 +28,12 @@ from empreinte.schemas import (
 from empreinte.taxonomy import map_indicator
 
 logger = get_logger(__name__)
+
+
+def extraction_schema() -> dict[str, object]:
+    """Schema JSON (tableau d'indicateurs) pour le guided decoding du VLM."""
+    return {"type": "array", "items": ExtractedIndicatorDraft.model_json_schema()}
+
 
 _VALID_CATEGORIES = (
     "electricity, natural_gas, district_heating, diesel, petrol, business_travel_car, waste"
@@ -50,8 +58,13 @@ class ExtractionError(RuntimeError):
 class Extractor:
     """Orchestre l'appel vision et transforme la reponse en indicateurs structures."""
 
-    def __init__(self, gateway: LLMGateway) -> None:
+    def __init__(self, gateway: LLMGateway, min_confidence: float | None = None) -> None:
         self._gateway = gateway
+        cfg = get_settings()
+        self._min_confidence = (
+            cfg.extraction_min_confidence if min_confidence is None else min_confidence
+        )
+        self._guided = cfg.llm_guided_decoding
 
     def _build_request(self, document: SourceDocument) -> LLMRequest:
         images = [
@@ -66,20 +79,30 @@ class Extractor:
             messages=[
                 Message(role=Role.SYSTEM, content=_SYSTEM_PROMPT),
                 Message(role=Role.USER, content=instruction, images=images),
-            ]
+            ],
+            response_schema=extraction_schema() if self._guided else None,
         )
 
     async def extract(self, document: SourceDocument) -> ExtractionResult:
-        """Extrait et rattache les indicateurs d'activite d'un document."""
+        """Extrait, rattache a l'ESRS et marque les indicateurs peu fiables."""
         with record_span("extraction.vision", doc_id=document.doc_id):
             response = await self._gateway.complete(self._build_request(document))
-        indicators = [map_indicator(item) for item in self._parse(response.content)]
+        indicators = [self._finalize(draft) for draft in self._parse(response.content)]
         METRICS.incr("extraction.indicators", len(indicators))
-        logger.info("extraction_done", doc_id=document.doc_id, count=len(indicators))
+        flagged = sum(1 for indicator in indicators if indicator.needs_review)
+        logger.info(
+            "extraction_done", doc_id=document.doc_id, count=len(indicators), flagged=flagged
+        )
         return ExtractionResult(doc_id=document.doc_id, indicators=indicators)
 
+    def _finalize(self, draft: ExtractedIndicatorDraft) -> ExtractedIndicator:
+        indicator = ExtractedIndicator(
+            **draft.model_dump(), needs_review=draft.confidence < self._min_confidence
+        )
+        return map_indicator(indicator)
+
     @staticmethod
-    def _parse(content: str) -> list[ExtractedIndicator]:
+    def _parse(content: str) -> list[ExtractedIndicatorDraft]:
         payload = _isolate_json_array(content)
         try:
             raw_items = json.loads(payload)
@@ -87,14 +110,14 @@ class Extractor:
             raise ExtractionError(f"JSON d'extraction invalide: {exc}") from exc
         if not isinstance(raw_items, list):
             raise ExtractionError("le JSON d'extraction n'est pas un tableau")
-        indicators: list[ExtractedIndicator] = []
+        drafts: list[ExtractedIndicatorDraft] = []
         for item in raw_items:
             try:
-                indicators.append(ExtractedIndicator.model_validate(item))
+                drafts.append(ExtractedIndicatorDraft.model_validate(item))
             except ValidationError as exc:
                 METRICS.incr("extraction.rejected")
                 logger.warning("indicator_rejected", error=str(exc))
-        return indicators
+        return drafts
 
 
 def _isolate_json_array(content: str) -> str:
