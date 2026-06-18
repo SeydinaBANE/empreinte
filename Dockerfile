@@ -5,7 +5,7 @@ WORKDIR /build
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN pip install --no-cache-dir --upgrade pip build && \
-    pip wheel --no-cache-dir --wheel-dir /wheels ".[pdf,qdrant]"
+    pip wheel --no-cache-dir --wheel-dir /wheels ".[pdf,qdrant,postgres,storage]"
 
 FROM python:3.12-slim AS runtime
 

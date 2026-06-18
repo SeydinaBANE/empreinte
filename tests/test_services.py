@@ -4,36 +4,33 @@ from __future__ import annotations
 
 from empreinte.config import Settings
 from empreinte.gateway import LLMGateway
+from empreinte.object_store import InMemoryObjectStore, S3ObjectStore
+from empreinte.repositories import (
+    InMemoryDocumentRepository,
+    InMemoryReportRepository,
+    SqlDocumentRepository,
+    SqlReportRepository,
+)
 from empreinte.retriever import InMemoryRetriever, QdrantRetriever
-from empreinte.schemas import DocumentPage, SourceDocument
 from empreinte.services import (
-    DocumentStore,
     _build_gateway,
+    _build_object_store,
+    _build_repositories,
     _build_retriever,
     build_pipeline,
 )
 
 
-def test_document_store_add_and_get() -> None:
-    store = DocumentStore()
-    doc = SourceDocument(
-        doc_id="x", title="t", pages=[DocumentPage(page_number=1, image_base64="aaa")]
-    )
-    store.add(doc)
-    assert store.get("x") is doc
-    assert store.get("missing") is None
-
-
-def test_build_pipeline_seeds_demo_document() -> None:
+async def test_build_pipeline_seeds_demo_document() -> None:
     pipeline = build_pipeline()
-    demo = pipeline.documents.get("demo-facture-energie")
+    demo = await pipeline.documents.get("demo-facture-energie")
     assert demo is not None
     assert demo.page_count == 2
 
 
 async def test_demo_pipeline_extracts_canned_indicators() -> None:
     pipeline = build_pipeline()
-    demo = pipeline.documents.get("demo-facture-energie")
+    demo = await pipeline.documents.get("demo-facture-energie")
     assert demo is not None
     result = await pipeline.extractor.extract(demo)
     assert len(result.indicators) == 4
@@ -55,3 +52,24 @@ def test_build_retriever_inmemory_by_default() -> None:
 def test_build_retriever_qdrant_when_url_set() -> None:
     retriever = _build_retriever(Settings(qdrant_url="http://localhost:6333"))
     assert isinstance(retriever, QdrantRetriever)
+
+
+def test_build_repositories_inmemory_by_default() -> None:
+    documents, reports = _build_repositories(Settings(sql_dsn=""))
+    assert isinstance(documents, InMemoryDocumentRepository)
+    assert isinstance(reports, InMemoryReportRepository)
+
+
+def test_build_repositories_sql_when_dsn_set() -> None:
+    documents, reports = _build_repositories(Settings(sql_dsn="sqlite+aiosqlite:///:memory:"))
+    assert isinstance(documents, SqlDocumentRepository)
+    assert isinstance(reports, SqlReportRepository)
+
+
+def test_build_object_store_inmemory_by_default() -> None:
+    assert isinstance(_build_object_store(Settings(object_store_endpoint="")), InMemoryObjectStore)
+
+
+def test_build_object_store_s3_when_endpoint_set() -> None:
+    store = _build_object_store(Settings(object_store_endpoint="http://minio:9000"))
+    assert isinstance(store, S3ObjectStore)

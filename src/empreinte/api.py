@@ -86,8 +86,8 @@ def _authorize(
         raise HTTPException(status_code=403, detail="acces refuse") from exc
 
 
-def _require_document(pipeline: Pipeline, doc_id: str) -> SourceDocument:
-    document = pipeline.documents.get(doc_id)
+async def _require_document(pipeline: Pipeline, doc_id: str) -> SourceDocument:
+    document = await pipeline.documents.get(doc_id)
     if document is None:
         raise HTTPException(status_code=404, detail="document introuvable")
     return document
@@ -119,7 +119,7 @@ async def upload_document(
     audit: Annotated[AuditLog, Depends(get_audit_log)],
     file: Annotated[UploadFile, File(description="PDF ou image a analyser")],
 ) -> DocumentSummary:
-    """Ingere un document (PDF rendu en pages, ou image) et le stocke en memoire."""
+    """Ingere un document (PDF rendu en pages, ou image) et le persiste."""
     _authorize(policy, principal, audit, Permission.EXTRACT, "documents")
     payload = await file.read()
     doc_id = uuid.uuid4().hex
@@ -131,7 +131,7 @@ async def upload_document(
             document = document_from_images(doc_id, title, [payload])
     except IngestionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    pipeline.documents.add(document)
+    await pipeline.documents.save(document)
     audit.record(principal, action="upload", resource=doc_id, allowed=True)
     return DocumentSummary(doc_id=doc_id, title=title, page_count=document.page_count)
 
@@ -146,7 +146,7 @@ async def extract(
 ) -> ExtractionResult:
     """Extrait les donnees d'activite ESG d'un document deja uploade."""
     _authorize(policy, principal, audit, Permission.EXTRACT, ref.document_id)
-    document = _require_document(pipeline, ref.document_id)
+    document = await _require_document(pipeline, ref.document_id)
     result = await pipeline.extractor.extract(document)
     audit.record(principal, action="extract", resource=ref.document_id, allowed=True)
     return result
@@ -162,9 +162,10 @@ async def report(
 ) -> FootprintReport:
     """Calcule le bilan carbone sourcé d'un document deja uploade."""
     _authorize(policy, principal, audit, Permission.REPORT, ref.document_id)
-    document = _require_document(pipeline, ref.document_id)
+    document = await _require_document(pipeline, ref.document_id)
     extraction = await pipeline.extractor.extract(document)
     footprint = await pipeline.report_builder.build(extraction)
+    await pipeline.reports.save(footprint)
     audit.record(principal, action="report", resource=ref.document_id, allowed=True)
     return footprint
 

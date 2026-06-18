@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from empreinte.assistant import RegulatoryAssistant
 from empreinte.config import Settings, get_settings
@@ -22,11 +23,21 @@ from empreinte.gateway import (
     _build_async_http_client,
 )
 from empreinte.governance import assert_sovereign_endpoint
+from empreinte.object_store import InMemoryObjectStore, ObjectStore, S3ObjectStore
 from empreinte.report import ReportBuilder
+from empreinte.repositories import (
+    DocumentRepository,
+    InMemoryDocumentRepository,
+    InMemoryReportRepository,
+    ReportRepository,
+    SqlDocumentRepository,
+    SqlReportRepository,
+)
 from empreinte.retriever import InMemoryRetriever, QdrantRetriever, RegulatoryDoc, Retriever
 from empreinte.schemas import DocumentPage, EsrsDatapoint, SourceDocument
 
 _clients: list[httpx.AsyncClient] = []
+_engines: list[AsyncEngine] = []
 
 _DEMO_PIXEL = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYP"
@@ -81,20 +92,8 @@ class Pipeline:
     extractor: Extractor
     report_builder: ReportBuilder
     assistant: RegulatoryAssistant
-    documents: DocumentStore
-
-
-class DocumentStore:
-    """Stockage en memoire des documents uploades (aucune persistance externe)."""
-
-    def __init__(self) -> None:
-        self._documents: dict[str, SourceDocument] = {}
-
-    def add(self, document: SourceDocument) -> None:
-        self._documents[document.doc_id] = document
-
-    def get(self, doc_id: str) -> SourceDocument | None:
-        return self._documents.get(doc_id)
+    documents: DocumentRepository
+    reports: ReportRepository
 
 
 def _demo_document() -> SourceDocument:
@@ -132,24 +131,47 @@ def _build_retriever(cfg: Settings) -> Retriever:
     return InMemoryRetriever(_ESRS_CORPUS)
 
 
+def _build_object_store(cfg: Settings) -> ObjectStore:
+    if cfg.object_store_endpoint:
+        return S3ObjectStore(
+            endpoint=cfg.object_store_endpoint,
+            bucket=cfg.object_store_bucket,
+            access_key=cfg.object_store_access_key,
+            secret_key=cfg.object_store_secret_key,
+            region=cfg.object_store_region,
+        )
+    return InMemoryObjectStore()
+
+
+def _build_repositories(cfg: Settings) -> tuple[DocumentRepository, ReportRepository]:
+    if not cfg.sql_dsn:
+        return InMemoryDocumentRepository(seed=[_demo_document()]), InMemoryReportRepository()
+    engine = create_async_engine(cfg.sql_dsn, pool_pre_ping=True)
+    _engines.append(engine)
+    return SqlDocumentRepository(engine, _build_object_store(cfg)), SqlReportRepository(engine)
+
+
 def build_pipeline() -> Pipeline:
     """Assemble le pipeline complet selon la configuration (demo hors-ligne par defaut)."""
     cfg = get_settings()
     gateway = _build_gateway(cfg)
     retriever = _build_retriever(cfg)
     engine = CarbonEngine()
-    store = DocumentStore()
-    store.add(_demo_document())
+    documents, reports = _build_repositories(cfg)
     return Pipeline(
         extractor=Extractor(gateway),
         report_builder=ReportBuilder(engine, gateway, cfg.reporting_year),
         assistant=RegulatoryAssistant(gateway, retriever),
-        documents=store,
+        documents=documents,
+        reports=reports,
     )
 
 
 async def _cleanup() -> None:
-    """Ferme les clients HTTP async acquis (arret gracieux)."""
+    """Ferme les clients HTTP async et les engines SQL acquis (arret gracieux)."""
     while _clients:
         client = _clients.pop()
         await client.aclose()
+    while _engines:
+        engine = _engines.pop()
+        await engine.dispose()

@@ -29,6 +29,7 @@ repos:
           - fastapi
           - structlog
           - httpx
+          - sqlalchemy
         args: [--strict, --ignore-missing-imports]
         files: ^src/
 

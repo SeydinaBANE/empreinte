@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     qdrant_url: str = ""
     qdrant_collection: str = "empreinte_esrs"
 
+    sql_dsn: str = ""
+    object_store_endpoint: str = ""
+    object_store_bucket: str = "empreinte"
+    object_store_access_key: str = ""
+    object_store_secret_key: str = ""
+    object_store_region: str = "us-east-1"
+
     reporting_year: int = 2025
 
     api_keys: tuple[str, ...] = Field(
