@@ -23,6 +23,19 @@ def test_health_is_public(client: TestClient) -> None:
     assert response.json()["status"] == "ok"
 
 
+def test_ready_in_demo_mode(client: TestClient) -> None:
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json()["ready"] is True
+
+
+def test_metrics_exposes_prometheus(client: TestClient) -> None:
+    client.post("/extract", json={"document_id": _DEMO_DOC}, headers=_ANALYST)
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "empreinte_events_total" in response.text
+
+
 def test_chat_requires_api_key_header(client: TestClient) -> None:
     assert client.post("/chat", json={"question": "scope 2 ?"}).status_code == 422
 

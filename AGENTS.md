@@ -40,9 +40,16 @@ Run a single test: `pytest tests/test_factors.py -k test_compute_line_electricit
 - **RAG** (`retriever.py`): `InMemoryRetriever` (lexical, demo) / `QdrantRetriever` (prod)
 - **Assistant** (`assistant.py`): questions reglementaires ESRS ancrees sur le corpus
 - **Gouvernance** (`governance.py`): RBAC, `mask_pii`, `assert_sovereign_endpoint`, `AuditLog`
+- **Persistance** (`repositories.py`, `object_store.py`): `DocumentRepository` /
+  `ReportRepository` (Protocol) — InMemory (demo/tests) ou SQL (Postgres async) +
+  `ObjectStore` (InMemory / S3-MinIO). Migrations Alembic (`alembic/`).
 - **Composition root** (`services.py`): `build_pipeline()` — demo (LocalVisionProvider +
-  InMemoryRetriever + document seedé) vs prod (vLLM + Qdrant) ; `DocumentStore` en memoire
+  InMemoryRetriever + repos memoire) vs prod (vLLM + Qdrant + Postgres + objet) ;
+  `check_readiness()` pour `/ready`
+- **Observabilite** (`observability.py`): `METRICS`/`record_span` exposes en Prometheus
+  (`/metrics`) ; endpoints `/health` (live) et `/ready` (backends)
 - **Middlewares** (`middleware.py`): rate limiting par IP, correlation ID
+- **Deploiement** (`deploy/`): chart Helm + manifeste vLLM GPU ; `scripts/index_corpus.py`
 
 ## API auth
 

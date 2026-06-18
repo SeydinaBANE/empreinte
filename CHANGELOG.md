@@ -3,6 +3,19 @@
 Format base sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 versionnage [SemVer](https://semver.org/lang/fr/).
 
+## [Unreleased] — Mise en production M1
+
+### Added
+
+- **Persistance** : `DocumentRepository` / `ReportRepository` (Protocol) avec implémentations
+  InMemory et SQL (SQLAlchemy 2.0 async / Postgres) ; `ObjectStore` (InMemory + S3/MinIO).
+- **Migrations** Alembic (`documents`, `document_pages`, `reports`).
+- **Observabilité** : endpoints `/ready` (readiness backends) et `/metrics` (Prometheus).
+- **RAG production** : `scripts/index_corpus.py` (indexation Qdrant, embeddings fastembed).
+- **Déploiement** : chart Helm (`deploy/helm/empreinte`), manifeste vLLM GPU
+  (`deploy/vllm`), workflow `deploy.yml` + job `release` (push image GHCR), stack
+  `docker-compose` enrichie (Postgres + MinIO + migrate).
+
 ## [0.1.0] — 2025
 
 ### Added

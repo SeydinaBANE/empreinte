@@ -10,10 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from empreinte.assistant import RegulatoryAssistant
 from empreinte.config import Settings, get_settings
+from empreinte.corpus import ESRS_CORPUS
 from empreinte.extraction import Extractor
 from empreinte.factors import CarbonEngine
 from empreinte.gateway import (
@@ -33,8 +36,8 @@ from empreinte.repositories import (
     SqlDocumentRepository,
     SqlReportRepository,
 )
-from empreinte.retriever import InMemoryRetriever, QdrantRetriever, RegulatoryDoc, Retriever
-from empreinte.schemas import DocumentPage, EsrsDatapoint, SourceDocument
+from empreinte.retriever import InMemoryRetriever, QdrantRetriever, Retriever
+from empreinte.schemas import DocumentPage, SourceDocument
 
 _clients: list[httpx.AsyncClient] = []
 _engines: list[AsyncEngine] = []
@@ -56,33 +59,6 @@ _DEMO_EXTRACTION_JSON = (
     ' "raw_excerpt": "Dechets non dangereux 1 500 kg", "confidence": 0.8}'
     "]"
 )
-
-_ESRS_CORPUS: list[RegulatoryDoc] = [
-    RegulatoryDoc(
-        doc_id="esrs-e1-5",
-        datapoint=EsrsDatapoint.E1_5_ENERGY,
-        text=(
-            "ESRS E1-5 impose de declarer la consommation energetique totale en MWh, ventilee "
-            "par sources renouvelables et non renouvelables, ainsi que le mix energetique."
-        ),
-    ),
-    RegulatoryDoc(
-        doc_id="esrs-e1-6",
-        datapoint=EsrsDatapoint.E1_6_GHG,
-        text=(
-            "ESRS E1-6 impose de declarer les emissions brutes de gaz a effet de serre des "
-            "scopes 1, 2 et 3 en tonnes equivalent CO2, et les emissions totales consolidees."
-        ),
-    ),
-    RegulatoryDoc(
-        doc_id="ghg-scopes",
-        datapoint=EsrsDatapoint.E1_6_GHG,
-        text=(
-            "Le scope 2 couvre les emissions indirectes liees a l'energie achetee et consommee "
-            "(electricite, chaleur, vapeur). Le scope 1 couvre les emissions directes."
-        ),
-    ),
-]
 
 
 @dataclass(frozen=True)
@@ -128,7 +104,7 @@ def _build_gateway(cfg: Settings) -> LLMGateway:
 def _build_retriever(cfg: Settings) -> Retriever:
     if cfg.qdrant_url:
         return QdrantRetriever(url=cfg.qdrant_url, collection=cfg.qdrant_collection)
-    return InMemoryRetriever(_ESRS_CORPUS)
+    return InMemoryRetriever(ESRS_CORPUS)
 
 
 def _build_object_store(cfg: Settings) -> ObjectStore:
@@ -165,6 +141,34 @@ def build_pipeline() -> Pipeline:
         documents=documents,
         reports=reports,
     )
+
+
+async def _check_http(url: str) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+        return "ok"
+    except httpx.HTTPError as exc:
+        return f"error: {exc}"
+
+
+async def check_readiness() -> dict[str, str]:
+    """Verifie les backends configures (SQL, Qdrant, vLLM). Vide = mode demo pret."""
+    cfg = get_settings()
+    checks: dict[str, str] = {}
+    if cfg.sql_dsn and _engines:
+        try:
+            async with _engines[0].connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            checks["sql"] = "ok"
+        except SQLAlchemyError as exc:
+            checks["sql"] = f"error: {exc}"
+    if cfg.qdrant_url:
+        checks["qdrant"] = await _check_http(f"{cfg.qdrant_url}/readyz")
+    if cfg.llm_api_base:
+        checks["vllm"] = await _check_http(f"{cfg.llm_api_base}/models")
+    return checks
 
 
 async def _cleanup() -> None:

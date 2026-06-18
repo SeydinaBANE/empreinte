@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -26,8 +26,9 @@ from empreinte.governance import (
 from empreinte.ingestion import IngestionError, document_from_images, render_pdf
 from empreinte.logging import configure_logging, get_logger
 from empreinte.middleware import setup_middlewares
+from empreinte.observability import render_metrics
 from empreinte.schemas import ChatAnswer, ExtractionResult, FootprintReport, SourceDocument
-from empreinte.services import Pipeline
+from empreinte.services import Pipeline, check_readiness
 
 logger = get_logger(__name__)
 configure_logging()
@@ -107,8 +108,26 @@ setup_middlewares(app, _cfg.rate_limit_max_requests, _cfg.rate_limit_window_sec)
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
 async def health() -> HealthResponse:
-    """Verifie que le service repond."""
+    """Liveness : verifie que le service repond."""
     return HealthResponse(status="ok", version=__version__)
+
+
+@app.get("/ready", tags=["system"])
+async def ready() -> JSONResponse:
+    """Readiness : verifie les backends configures (SQL, Qdrant, vLLM)."""
+    checks = await check_readiness()
+    ok = all(status == "ok" for status in checks.values())
+    return JSONResponse(
+        status_code=200 if ok else 503,
+        content={"ready": ok, "checks": checks},
+    )
+
+
+@app.get("/metrics", tags=["system"])
+async def metrics() -> Response:
+    """Exposition Prometheus des compteurs et durees de spans."""
+    payload, content_type = render_metrics()
+    return Response(content=payload, media_type=content_type)
 
 
 @app.post("/documents", response_model=DocumentSummary, tags=["documents"])

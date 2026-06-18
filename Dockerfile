@@ -5,7 +5,7 @@ WORKDIR /build
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN pip install --no-cache-dir --upgrade pip build && \
-    pip wheel --no-cache-dir --wheel-dir /wheels ".[pdf,qdrant,postgres,storage]"
+    pip wheel --no-cache-dir --wheel-dir /wheels ".[pdf,qdrant,postgres,storage,migrations]"
 
 FROM python:3.12-slim AS runtime
 
@@ -17,6 +17,9 @@ RUN groupadd --system empreinte && useradd --system --gid empreinte --create-hom
 WORKDIR /app
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels
+
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 
 USER empreinte
 

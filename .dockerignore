@@ -12,6 +12,7 @@ dist/
 build/
 .git/
 .github/
+deploy/
 tests/
 docs/
 .env
