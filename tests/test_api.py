@@ -37,7 +37,7 @@ def test_metrics_exposes_prometheus(client: TestClient) -> None:
 
 
 def test_chat_requires_api_key_header(client: TestClient) -> None:
-    assert client.post("/chat", json={"question": "scope 2 ?"}).status_code == 422
+    assert client.post("/chat", json={"question": "scope 2 ?"}).status_code == 401
 
 
 def test_invalid_api_key_is_rejected(client: TestClient) -> None:
@@ -85,3 +85,22 @@ def test_upload_then_extract(client: TestClient) -> None:
     doc_id = upload.json()["doc_id"]
     extract = client.post("/extract", json={"document_id": doc_id}, headers=_ANALYST)
     assert extract.status_code == 200
+
+
+def test_analyst_cannot_erase(client: TestClient) -> None:
+    assert client.delete(f"/documents/{_DEMO_DOC}", headers=_ANALYST).status_code == 403
+
+
+def test_auditor_can_erase_document(client: TestClient) -> None:
+    upload = client.post(
+        "/documents",
+        headers=_AUDITOR,
+        files={"file": ("f.png", b"bytes", "image/png")},
+    )
+    doc_id = upload.json()["doc_id"]
+    erase = client.delete(f"/documents/{doc_id}", headers=_AUDITOR)
+    assert erase.status_code == 200
+    assert erase.json()["erased"] == doc_id
+    assert (
+        client.post("/extract", json={"document_id": doc_id}, headers=_AUDITOR).status_code == 404
+    )

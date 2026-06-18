@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException
 
+from empreinte.auth import AuthError, principal_from_api_key, verify_jwt
 from empreinte.config import get_settings
 from empreinte.governance import AuditLog, Principal, RBACPolicy
 from empreinte.services import Pipeline, build_pipeline
@@ -30,11 +31,21 @@ def get_audit_log() -> AuditLog:
 
 
 def get_principal(
-    x_api_key: str = Header(..., description="API key for authentication"),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
 ) -> Principal:
-    """Extrait le principal authentifie depuis le header ``X-API-Key``."""
-    settings = get_settings()
-    role = settings.api_key_mapping.get(x_api_key)
-    if role is None:
-        raise HTTPException(status_code=401, detail="invalid API key")
-    return Principal(user_id=f"key:{x_api_key[:8]}", roles=frozenset({role}))
+    """Authentifie l'appelant : JWT porteur (mode jwt) ou clé API (mode api_key)."""
+    cfg = get_settings()
+    if cfg.auth_mode == "jwt":
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="jeton porteur manquant")
+        try:
+            return verify_jwt(authorization[len("Bearer ") :], cfg)
+        except AuthError as exc:
+            raise HTTPException(status_code=401, detail="jeton invalide") from exc
+    if x_api_key is None:
+        raise HTTPException(status_code=401, detail="clé API manquante")
+    try:
+        return principal_from_api_key(x_api_key, cfg)
+    except AuthError as exc:
+        raise HTTPException(status_code=401, detail="clé API invalide") from exc

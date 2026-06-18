@@ -48,6 +48,18 @@ class Settings(BaseSettings):
 
     reporting_year: int = 2025
 
+    auth_mode: str = "api_key"
+    jwt_algorithm: str = "RS256"
+    jwt_secret: str = ""
+    jwt_jwks_url: str = ""
+    jwt_issuer: str = ""
+    jwt_audience: str = ""
+    jwt_roles_claim: str = "roles"
+    jwt_tenant_claim: str = "tenant_id"
+
+    default_tenant: str = "demo"
+    retention_days: int = 365
+
     api_keys: tuple[str, ...] = Field(
         default=("dev-key-analyst:analyst", "dev-key-auditor:auditor"),
         description="colon-separated key:role pairs",

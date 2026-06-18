@@ -121,7 +121,8 @@ def _build_object_store(cfg: Settings) -> ObjectStore:
 
 def _build_repositories(cfg: Settings) -> tuple[DocumentRepository, ReportRepository]:
     if not cfg.sql_dsn:
-        return InMemoryDocumentRepository(seed=[_demo_document()]), InMemoryReportRepository()
+        seed = [(cfg.default_tenant, _demo_document())]
+        return InMemoryDocumentRepository(seed=seed), InMemoryReportRepository()
     engine = create_async_engine(cfg.sql_dsn, pool_pre_ping=True)
     _engines.append(engine)
     return SqlDocumentRepository(engine, _build_object_store(cfg)), SqlReportRepository(engine)

@@ -10,10 +10,14 @@ En production, etendre ``empreinte.corpus.ESRS_CORPUS`` au texte ESRS/CSRD compl
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
 
-from empreinte.config import get_settings
-from empreinte.corpus import ESRS_CORPUS
-from empreinte.logging import configure_logging, get_logger
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from empreinte.config import get_settings  # noqa: E402
+from empreinte.corpus import ESRS_CORPUS  # noqa: E402
+from empreinte.logging import configure_logging, get_logger  # noqa: E402
 
 logger = get_logger(__name__)
 

@@ -9,16 +9,30 @@ Docker) sont autorises. Le mode demo n'effectue aucun appel reseau.
 
 ## Authentification & autorisation
 
-- Toutes les routes metier exigent `X-API-Key` ; `/health` est public.
-- RBAC a deux roles (`analyst`, `auditor`) — voir `docs/couche-06-gouvernance-souverainete.md`.
+- **Mode `api_key`** (demo) : header `X-API-Key` mappe vers un role + tenant par defaut.
+- **Mode `jwt`** (prod, OIDC) : jeton porteur valide (signature RS256/JWKS ou HS256, issuer,
+  audience) ; les claims fournissent les roles et le `tenant_id`.
+- RBAC : `analyst` (extract, chat), `auditor` (+ report, erase). `/health`, `/ready`,
+  `/metrics` publics.
 - Rate limiting par IP sur les routes `/chat*`.
+
+## Isolation multi-tenant
+
+- Chaque donnee porte un `tenant_id` ; documents et bilans sont **filtres par tenant** en
+  base, et les images sont prefixees par tenant dans le stockage objet.
+- Un appelant ne peut lire/effacer que les donnees de son tenant (verifie dans les depots).
 
 ## Donnees personnelles (RGPD)
 
 - `mask_pii` masque emails et IBAN dans les reponses de chat.
-- Aucune persistance externe : les documents uploades restent en memoire (`DocumentStore`)
-  pour la duree de vie du process.
-- Journal d'audit append-only de chaque acces (`AuditLog`).
+- **Droit a l'effacement** : `DELETE /documents/{id}` supprime document, bilan et images du
+  tenant (role `auditor`).
+- **Retention** : `scripts/purge_retention.py` (CronJob) purge les documents au-dela de
+  `EMPREINTE_RETENTION_DAYS`.
+- **Chiffrement** : at-rest (Postgres TDE + chiffrement bucket SSE) et in-transit (TLS/mTLS
+  in-cluster) — assures par l'infra (cf. `docs/couche-09-persistance-deploiement.md`).
+- Journal d'audit de chaque acces (`AuditLog`). *Persistance de l'audit en base : prevue (le
+  chemin d'audit reste en memoire a ce stade).*
 
 ## Secrets
 

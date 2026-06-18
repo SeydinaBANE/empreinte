@@ -3,7 +3,19 @@
 Format base sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 versionnage [SemVer](https://semver.org/lang/fr/).
 
-## [Unreleased] — Mise en production M1–M2
+## [Unreleased] — Mise en production M1–M3
+
+### Added (M3 — sécurité, multi-tenant, RGPD)
+
+- **AuthN** : mode `jwt` (OIDC, RS256/JWKS ou HS256, validation issuer/audience, claims →
+  rôles + `tenant_id`) avec repli `api_key` ; `auth.py`.
+- **Multi-tenant** : `tenant_id` propagé du principal aux dépôts (filtrage SQL, clé InMemory,
+  préfixe objet) ; migration Alembic `0002`.
+- **RGPD** : droit à l'effacement (`DELETE /documents/{id}`, rôle `auditor`), purge de
+  rétention (`scripts/purge_retention.py`), masquage PII. Chiffrement at-rest/in-transit
+  documenté (infra).
+
+
 
 ### Added (M2 — qualité & résilience)
 

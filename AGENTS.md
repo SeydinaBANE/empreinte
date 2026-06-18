@@ -53,11 +53,14 @@ Run a single test: `pytest tests/test_factors.py -k test_compute_line_electricit
 
 ## API auth
 
-- `X-API-Key` requis sur `/documents`, `/extract`, `/report`, `/chat`, `/chat/stream`
-- Cles dans `EMPREINTE_API_KEYS` (format `key:role,key:role`)
-- Roles : `analyst` (extract + chat), `auditor` (extract + report + chat)
-- Header manquant → `422`, clé invalide → `401`, permission insuffisante → `403`
-- `/health` public ; rate limiting sur les routes `/chat*`
+- Deux modes (`EMPREINTE_AUTH_MODE`) : `api_key` (header `X-API-Key`, démo) ou `jwt`
+  (Authorization Bearer, OIDC RS256/JWKS ou HS256 ; claims → rôles + `tenant_id`) — `auth.py`
+- Cles API dans `EMPREINTE_API_KEYS` (`key:role,...`) ; tenant = `EMPREINTE_DEFAULT_TENANT`
+- Roles : `analyst` (extract + chat), `auditor` (+ report + erase)
+- Credentials manquants/invalides → `401`, permission insuffisante → `403`, doc inconnu → `404`
+- `/health`, `/ready`, `/metrics` publics ; rate limiting sur les routes `/chat*`
+- **Multi-tenant** : `tenant_id` (du principal) propagé aux dépôts ; isolation document/bilan
+- **RGPD** : `DELETE /documents/{id}` (effacement, `auditor`) ; `scripts/purge_retention.py`
 
 ## Souverainete (mode `EMPREINTE_SOVEREIGN_MODE=true`)
 

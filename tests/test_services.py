@@ -23,14 +23,14 @@ from empreinte.services import (
 
 async def test_build_pipeline_seeds_demo_document() -> None:
     pipeline = build_pipeline()
-    demo = await pipeline.documents.get("demo-facture-energie")
+    demo = await pipeline.documents.get("demo", "demo-facture-energie")
     assert demo is not None
     assert demo.page_count == 2
 
 
 async def test_demo_pipeline_extracts_canned_indicators() -> None:
     pipeline = build_pipeline()
-    demo = await pipeline.documents.get("demo-facture-energie")
+    demo = await pipeline.documents.get("demo", "demo-facture-energie")
     assert demo is not None
     result = await pipeline.extractor.extract(demo)
     assert len(result.indicators) == 4

@@ -38,19 +38,23 @@ class Permission(StrEnum):
     EXTRACT = "extract"
     REPORT = "report"
     CHAT = "chat"
+    ERASE = "erase"
 
 
 @dataclass(frozen=True)
 class Principal:
-    """Appelant authentifie : identifiant et roles."""
+    """Appelant authentifie : identifiant, roles et tenant."""
 
     user_id: str
     roles: frozenset[str]
+    tenant_id: str = "default"
 
 
 _ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     "analyst": frozenset({Permission.EXTRACT, Permission.CHAT}),
-    "auditor": frozenset({Permission.EXTRACT, Permission.REPORT, Permission.CHAT}),
+    "auditor": frozenset(
+        {Permission.EXTRACT, Permission.REPORT, Permission.CHAT, Permission.ERASE}
+    ),
 }
 
 

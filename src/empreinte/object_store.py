@@ -27,6 +27,10 @@ class ObjectStore(Protocol):
         """Retourne les octets stockes sous ``key`` ou leve ``ObjectStoreError``."""
         ...
 
+    async def delete(self, key: str) -> None:
+        """Supprime l'objet ``key`` (idempotent)."""
+        ...
+
 
 class InMemoryObjectStore:
     """Stockage objet en memoire (demo/tests)."""
@@ -43,6 +47,9 @@ class InMemoryObjectStore:
             return self._objects[key]
         except KeyError as exc:
             raise ObjectStoreError(f"objet introuvable: {key}") from exc
+
+    async def delete(self, key: str) -> None:
+        self._objects.pop(key, None)
 
 
 class S3ObjectStore:  # pragma: no cover - depend de l'extra 'storage'
@@ -95,3 +102,14 @@ class S3ObjectStore:  # pragma: no cover - depend de l'extra 'storage'
             except Exception as exc:
                 raise ObjectStoreError(f"objet introuvable: {key}") from exc
         return body
+
+    async def delete(self, key: str) -> None:
+        session = self._session()
+        async with session.client(  # type: ignore[attr-defined]
+            "s3",
+            endpoint_url=self._endpoint,
+            aws_access_key_id=self._access_key,
+            aws_secret_access_key=self._secret_key,
+            region_name=self._region,
+        ) as client:
+            await client.delete_object(Bucket=self._bucket, Key=key)

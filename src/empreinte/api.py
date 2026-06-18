@@ -87,8 +87,8 @@ def _authorize(
         raise HTTPException(status_code=403, detail="acces refuse") from exc
 
 
-async def _require_document(pipeline: Pipeline, doc_id: str) -> SourceDocument:
-    document = await pipeline.documents.get(doc_id)
+async def _require_document(pipeline: Pipeline, tenant_id: str, doc_id: str) -> SourceDocument:
+    document = await pipeline.documents.get(tenant_id, doc_id)
     if document is None:
         raise HTTPException(status_code=404, detail="document introuvable")
     return document
@@ -150,7 +150,7 @@ async def upload_document(
             document = document_from_images(doc_id, title, [payload])
     except IngestionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    await pipeline.documents.save(document)
+    await pipeline.documents.save(principal.tenant_id, document)
     audit.record(principal, action="upload", resource=doc_id, allowed=True)
     return DocumentSummary(doc_id=doc_id, title=title, page_count=document.page_count)
 
@@ -165,7 +165,7 @@ async def extract(
 ) -> ExtractionResult:
     """Extrait les donnees d'activite ESG d'un document deja uploade."""
     _authorize(policy, principal, audit, Permission.EXTRACT, ref.document_id)
-    document = await _require_document(pipeline, ref.document_id)
+    document = await _require_document(pipeline, principal.tenant_id, ref.document_id)
     result = await pipeline.extractor.extract(document)
     audit.record(principal, action="extract", resource=ref.document_id, allowed=True)
     return result
@@ -181,12 +181,28 @@ async def report(
 ) -> FootprintReport:
     """Calcule le bilan carbone sourcé d'un document deja uploade."""
     _authorize(policy, principal, audit, Permission.REPORT, ref.document_id)
-    document = await _require_document(pipeline, ref.document_id)
+    document = await _require_document(pipeline, principal.tenant_id, ref.document_id)
     extraction = await pipeline.extractor.extract(document)
     footprint = await pipeline.report_builder.build(extraction)
-    await pipeline.reports.save(footprint)
+    await pipeline.reports.save(principal.tenant_id, footprint)
     audit.record(principal, action="report", resource=ref.document_id, allowed=True)
     return footprint
+
+
+@app.delete("/documents/{doc_id}", tags=["documents"])
+async def erase_document(
+    doc_id: str,
+    principal: Annotated[Principal, Depends(get_principal)],
+    pipeline: Annotated[Pipeline, Depends(get_pipeline)],
+    policy: Annotated[RBACPolicy, Depends(get_rbac_policy)],
+    audit: Annotated[AuditLog, Depends(get_audit_log)],
+) -> JSONResponse:
+    """Droit a l'effacement (RGPD) : supprime document, bilan et images du tenant."""
+    _authorize(policy, principal, audit, Permission.ERASE, doc_id)
+    await pipeline.documents.delete(principal.tenant_id, doc_id)
+    await pipeline.reports.delete(principal.tenant_id, doc_id)
+    audit.record(principal, action="erase", resource=doc_id, allowed=True)
+    return JSONResponse(status_code=200, content={"erased": doc_id})
 
 
 @app.post("/chat", response_model=ChatAnswer, tags=["chat"])

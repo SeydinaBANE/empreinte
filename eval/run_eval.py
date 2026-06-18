@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from empreinte.config import get_settings  # noqa: E402
 from empreinte.evaluation import EvalReport, score_extraction  # noqa: E402
 from empreinte.logging import configure_logging, get_logger  # noqa: E402
 from empreinte.schemas import ExtractedIndicatorDraft  # noqa: E402
@@ -35,7 +36,7 @@ def _load_gold(path: Path) -> tuple[str, list[ExtractedIndicatorDraft]]:
 async def _evaluate_case(path: Path) -> EvalReport:
     doc_id, gold = _load_gold(path)
     pipeline = build_pipeline()
-    document = await pipeline.documents.get(doc_id)
+    document = await pipeline.documents.get(get_settings().default_tenant, doc_id)
     if document is None:
         raise SystemExit(f"document de demo introuvable: {doc_id}")
     extraction = await pipeline.extractor.extract(document)
